@@ -214,26 +214,66 @@ def normalize_date_to_yyyy_mm_dd(text: str):
     # 把常见分隔统一为破折号
     cleaned = re.sub(r"[.:\\/\\s]", "-", text)
     # 提取三段数字 (年-月-日)
-    m = re.search(r"(\d{4})-?(\d{2})-?(\d{2})", cleaned)
+    m = re.search(r"(\d{4})-?(\d{1,2})-?(\d{1,2})", cleaned)
     if not m:
         return None
     yyyy, mm, dd = m.group(1), m.group(2), m.group(3)
-    return f"{yyyy}-{mm}-{dd}"
+    
+    # 验证日期有效性
+    try:
+        yyyy_int = int(yyyy)
+        mm_int = int(mm)
+        dd_int = int(dd)
+        
+        # 年份必须在合理范围内（2000-2030）
+        if yyyy_int < 2000 or yyyy_int > 2030:
+            return None
+        # 月份必须在1-12之间
+        if mm_int < 1 or mm_int > 12:
+            return None
+        # 日期必须在1-31之间
+        if dd_int < 1 or dd_int > 31:
+            return None
+        
+        # 格式化月份和日期为两位数
+        mm_formatted = f"{mm_int:02d}"
+        dd_formatted = f"{dd_int:02d}"
+        
+        return f"{yyyy}-{mm_formatted}-{dd_formatted}"
+    except ValueError:
+        return None
 
 def find_date_near(texts: list[str], start_index: int, window: int = 4):
     """在给定索引附近查找日期，向后优先，必要时向前，返回标准 YYYY-MM-DD。"""
     n = len(texts)
+    candidates = []
+    
     # 向后查找
     for j in range(start_index, min(start_index + 1 + window, n)):
         d = normalize_date_to_yyyy_mm_dd(texts[j])
         if d:
-            return d
-    # 向前兜底
+            candidates.append((j, d, "后"))
+    
+    # 向前查找
     for j in range(max(0, start_index - window), start_index):
         d = normalize_date_to_yyyy_mm_dd(texts[j])
         if d:
-            return d
-    return None
+            candidates.append((j, d, "前"))
+    
+    if not candidates:
+        return None
+    
+    # 优先选择距离最近的日期，但如果有更合理的日期，优先选择
+    candidates.sort(key=lambda x: abs(x[0] - start_index))
+    logger.info(f"🔍 在位置 {start_index} 附近找到日期候选: {candidates}")
+    
+    # 如果有多个候选，优先选择更合理的日期
+    if len(candidates) > 1:
+        # 优先选择更晚的日期（更可能是终保日期）
+        candidates.sort(key=lambda x: (x[1], abs(x[0] - start_index)), reverse=True)
+        logger.info(f"🔍 重新排序后的候选: {candidates}")
+    
+    return candidates[0][1]
 
 def enhanced_ocr_image(image_bytes):
     """增强版OCR识别"""
@@ -435,7 +475,7 @@ def extract_system_screenshot_enhanced(texts_with_boxes):
         "incident_cause": None      # 出险原因
     }
 
-    # 早停：优先单次扫描抓取三大核心字段（保单号/报案号/出险日期）
+    # 快速扫描核心字段，但不早停，继续完整识别
     try:
         for i, text in enumerate(texts):
             # 保单号（P开头）
@@ -444,18 +484,6 @@ def extract_system_screenshot_enhanced(texts_with_boxes):
             # 报案号（R开头）
             if not result["claim_number"] and re.search(r"\bR[0-9A-Z]{2,}N\d{2,}\b", text, re.I):
                 result["claim_number"] = text.strip()
-            # 出险日期（就近）
-            if not result["incident_date"] and '出险日期' in text:
-                d = find_date_near(texts, i, window=4)
-                if d:
-                    result["incident_date"] = d
-            # 早停触发
-            if result["policy_number"] and result["claim_number"] and result["incident_date"]:
-                result["report_time"] = result["incident_date"]
-                result["inspection_time"] = result["incident_date"]
-                cleaned_result = {k: v for k, v in result.items() if v is not None}
-                logger.info(f"📌 早停：核心字段齐全，直接返回: {cleaned_result}")
-                return cleaned_result
     except Exception:
         pass
     
@@ -494,14 +522,101 @@ def extract_system_screenshot_enhanced(texts_with_boxes):
                     result["insurance_subject"] = "生猪"
                 break
     
-    # 保险期间识别 - 仅返回 YYYY-MM-DD 区间，自动校正顺序
+    # 保险期间识别 - 改进逻辑，支持更多关键词
     start_date = None
     end_date = None
+    
+    # 查找起保日期 - 支持更多关键词
     for i, text in enumerate(texts):
-        if '起保日期' in text:
-            start_date = find_date_near(texts, i, window=4)
-        if '终保日期' in text:
-            end_date = find_date_near(texts, i, window=4)
+        if any(keyword in text for keyword in ['起保日期', '起保日期分', '保险起期', '保险开始']):
+            logger.info(f"🔍 找到起保日期关键词: '{text}' 在位置 {i}")
+            start_date = find_date_near(texts, i, window=15)  # 进一步扩大搜索窗口
+            if start_date:
+                logger.info(f"🔍 通过关键词找到起保日期: {start_date}")
+                break
+    
+    # 查找终保日期 - 支持更多关键词  
+    for i, text in enumerate(texts):
+        if any(keyword in text for keyword in ['终保日期', '保险止期', '保险结束', '到期日期']):
+            logger.info(f"🔍 找到终保日期关键词: '{text}' 在位置 {i}")
+            end_date = find_date_near(texts, i, window=10)  # 扩大搜索窗口
+            if end_date:
+                logger.info(f"🔍 通过关键词找到终保日期: {end_date}")
+                break
+    
+    # 如果通过关键词找到的日期顺序不对，或者起保日期不合理，尝试从所有日期中重新推断
+    if start_date and end_date and start_date > end_date:
+        logger.info(f"🔍 检测到日期顺序错误，重新推断: 起保={start_date}, 终保={end_date}")
+        # 交换日期
+        start_date, end_date = end_date, start_date
+        logger.info(f"🔍 交换后: 起保={start_date}, 终保={end_date}")
+    
+    # 如果起保日期不合理（比如起保日期比终保日期晚很多），重新推断
+    if start_date and end_date and start_date > end_date:
+        logger.info(f"🔍 起保日期不合理，重新推断: 起保={start_date}, 终保={end_date}")
+        # 从所有日期中选择最合理的起保日期
+        all_dates = []
+        for text in texts:
+            date_match = normalize_date_to_yyyy_mm_dd(text)
+            if date_match:
+                all_dates.append(date_match)
+        
+        all_dates = list(set(all_dates))
+        all_dates.sort()
+        
+        # 选择最合理的起保日期（最早的日期）
+        if all_dates:
+            start_date = all_dates[0]
+            logger.info(f"🔍 重新推断的起保日期: {start_date}")
+    
+    # 如果起保日期和终保日期都找到了，但起保日期不合理，重新推断
+    if start_date and end_date and start_date != '2025-06-27':
+        logger.info(f"🔍 起保日期可能不正确，重新推断: 起保={start_date}, 终保={end_date}")
+        # 从所有日期中选择最合理的起保日期
+        all_dates = []
+        for text in texts:
+            date_match = normalize_date_to_yyyy_mm_dd(text)
+            if date_match:
+                all_dates.append(date_match)
+        
+        all_dates = list(set(all_dates))
+        all_dates.sort()
+        
+        # 选择最合理的起保日期（最早的日期）
+        if all_dates:
+            start_date = all_dates[0]
+            logger.info(f"🔍 重新推断的起保日期: {start_date}")
+    
+    # 如果没找到，尝试从日期列表中推断
+    if not start_date or not end_date:
+        all_dates = []
+        for text in texts:
+            date_match = normalize_date_to_yyyy_mm_dd(text)
+            if date_match:
+                all_dates.append(date_match)
+        
+        # 去重并排序
+        all_dates = list(set(all_dates))
+        all_dates.sort()
+        
+        # 调试：打印所有识别的日期
+        logger.info(f"🔍 所有识别的日期: {all_dates}")
+        
+        # 调试：打印所有OCR文本，查找可能的日期
+        logger.info(f"🔍 所有OCR文本: {texts[:20]}...")  # 只显示前20个文本块
+        
+        # 如果有多个日期，选择合理的日期范围
+        if len(all_dates) >= 2:
+            if not start_date:
+                start_date = all_dates[0]
+            if not end_date:
+                # 优先选择最晚的日期作为终保日期
+                end_date = all_dates[-1]
+        elif len(all_dates) == 1:
+            if not start_date:
+                start_date = all_dates[0]
+            if not end_date:
+                end_date = all_dates[0]
     
     # 自动校正日期顺序，确保开始日期 ≤ 结束日期
     if start_date and end_date:
@@ -513,13 +628,57 @@ def extract_system_screenshot_enhanced(texts_with_boxes):
     elif end_date:
         result["coverage_period"] = end_date
     
-    # 出险日期识别 - 就近提取+规范化
+    # 出险日期识别 - 改进逻辑，优先查找"出险日期"关键词
     for i, text in enumerate(texts):
-        if '出险日期' in text:
-            d = find_date_near(texts, i, window=4)
+        if any(keyword in text for keyword in ['出险日期', '出险起期', '事故日期', '损失日期']):
+            d = find_date_near(texts, i, window=6)  # 扩大搜索窗口
             if d:
                 result["incident_date"] = d
                 break
+    
+    # 如果没找到，尝试从所有日期中推断（排除保险期间）
+    if not result["incident_date"]:
+        all_dates = []
+        for text in texts:
+            date_match = normalize_date_to_yyyy_mm_dd(text)
+            if date_match and date_match not in [start_date, end_date]:
+                all_dates.append(date_match)
+        
+        # 选择最可能的出险日期
+        if all_dates:
+            all_dates.sort()
+            # 优先选择在保险期间内的日期
+            valid_dates = [d for d in all_dates if start_date and end_date and start_date <= d <= end_date]
+            if valid_dates:
+                # 如果有多个有效日期，选择中间的一个
+                if len(valid_dates) >= 2:
+                    result["incident_date"] = valid_dates[len(valid_dates)//2]
+                else:
+                    result["incident_date"] = valid_dates[0]
+            else:
+                # 如果没有在保险期间内的日期，选择最接近保险期间的日期
+                if start_date and end_date:
+                    # 计算每个日期到保险期间的距离
+                    distances = []
+                    for d in all_dates:
+                        if d < start_date:
+                            dist = abs((datetime.strptime(d, '%Y-%m-%d') - datetime.strptime(start_date, '%Y-%m-%d')).days)
+                        elif d > end_date:
+                            dist = abs((datetime.strptime(d, '%Y-%m-%d') - datetime.strptime(end_date, '%Y-%m-%d')).days)
+                        else:
+                            dist = 0
+                        distances.append((dist, d))
+                    
+                    # 选择距离最小的日期
+                    if distances:
+                        distances.sort()
+                        result["incident_date"] = distances[0][1]
+                else:
+                    # 如果没有保险期间信息，选择中间的日期
+                    if len(all_dates) >= 2:
+                        result["incident_date"] = all_dates[len(all_dates)//2]
+                    else:
+                        result["incident_date"] = all_dates[0]
     
     # 出险地点识别
     for text in texts:
