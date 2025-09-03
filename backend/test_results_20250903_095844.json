@@ -1,0 +1,308 @@
+{
+  "test_summary": {
+    "total_tests": 12,
+    "successful_tests": 12,
+    "total_time": 122.00664520263672,
+    "overall_success_rate": 100.0
+  },
+  "category_analysis": {
+    "身份证": {
+      "total": 3,
+      "success": 3,
+      "accuracy": 100.0,
+      "avg_time": 3.6534221172332764
+    },
+    "银行卡": {
+      "total": 5,
+      "success": 5,
+      "accuracy": 100.0,
+      "avg_time": 3.131413793563843
+    },
+    "系统截图": {
+      "total": 4,
+      "success": 4,
+      "accuracy": 100.0,
+      "avg_time": 23.84732747077942
+    }
+  },
+  "detailed_results": [
+    {
+      "image_path": "测试/身份证/b512bca6f5da75508be3c7887882e46b.JPG",
+      "category": "身份证",
+      "success": true,
+      "processing_time": 4.21957802772522,
+      "result": {
+        "idNumber": "522226199703062443",
+        "insuredPerson": "田莎莎",
+        "bankName": "未识别",
+        "cardNumber": "未识别",
+        "policyNumber": "未识别",
+        "claimNumber": "未识别",
+        "incidentLocation": "",
+        "incidentCause": "",
+        "insuredName": "",
+        "insuranceSubject": [],
+        "coveragePeriod": "",
+        "reportTime": "",
+        "inspectionTime": "",
+        "inspectionMethod": "现场查勘",
+        "estimatedLoss": ""
+      }
+    },
+    {
+      "image_path": "测试/身份证/b838b3065e09d66f3bd56f73e2ad90b8.JPG",
+      "category": "身份证",
+      "success": true,
+      "processing_time": 3.4610581398010254,
+      "result": {
+        "idNumber": "未识别",
+        "insuredPerson": "未识别",
+        "bankName": "未识别",
+        "cardNumber": "未识别",
+        "policyNumber": "未识别",
+        "claimNumber": "未识别",
+        "incidentLocation": "",
+        "incidentCause": "",
+        "insuredName": "",
+        "insuranceSubject": [],
+        "coveragePeriod": "",
+        "reportTime": "",
+        "inspectionTime": "",
+        "inspectionMethod": "现场查勘",
+        "estimatedLoss": ""
+      }
+    },
+    {
+      "image_path": "测试/身份证/e0a2074108be994c1ac6fe03c103c0cc.JPG",
+      "category": "身份证",
+      "success": true,
+      "processing_time": 3.279630184173584,
+      "result": {
+        "idNumber": "522229195008253214",
+        "insuredPerson": "杨光郁",
+        "bankName": "未识别",
+        "cardNumber": "未识别",
+        "policyNumber": "未识别",
+        "claimNumber": "未识别",
+        "incidentLocation": "",
+        "incidentCause": "",
+        "insuredName": "",
+        "insuranceSubject": [],
+        "coveragePeriod": "",
+        "reportTime": "",
+        "inspectionTime": "",
+        "inspectionMethod": "现场查勘",
+        "estimatedLoss": ""
+      }
+    },
+    {
+      "image_path": "测试/银行卡/95d4c07fcbd5f873413baf5c9c022ffd.JPG",
+      "category": "银行卡",
+      "success": true,
+      "processing_time": 2.9782559871673584,
+      "result": {
+        "idNumber": "未识别",
+        "insuredPerson": "未识别",
+        "bankName": "贵州农信",
+        "cardNumber": "6217790001223347143",
+        "policyNumber": "未识别",
+        "claimNumber": "未识别",
+        "incidentLocation": "",
+        "incidentCause": "",
+        "insuredName": "",
+        "insuranceSubject": [],
+        "coveragePeriod": "",
+        "reportTime": "",
+        "inspectionTime": "",
+        "inspectionMethod": "现场查勘",
+        "estimatedLoss": ""
+      }
+    },
+    {
+      "image_path": "测试/银行卡/99b7278fecbd6176545cd4529f6b366b.JPG",
+      "category": "银行卡",
+      "success": true,
+      "processing_time": 4.247632026672363,
+      "result": {
+        "idNumber": "未识别",
+        "insuredPerson": "未识别",
+        "bankName": "未识别",
+        "cardNumber": "未识别",
+        "policyNumber": "未识别",
+        "claimNumber": "未识别",
+        "incidentLocation": "",
+        "incidentCause": "",
+        "insuredName": "",
+        "insuranceSubject": [],
+        "coveragePeriod": "",
+        "reportTime": "",
+        "inspectionTime": "",
+        "inspectionMethod": "现场查勘",
+        "estimatedLoss": ""
+      }
+    },
+    {
+      "image_path": "测试/银行卡/cd11656a20f17ada2a052e4c8c73578b.JPG",
+      "category": "银行卡",
+      "success": true,
+      "processing_time": 3.184237003326416,
+      "result": {
+        "idNumber": "未识别",
+        "insuredPerson": "未识别",
+        "bankName": "未识别",
+        "cardNumber": "未识别",
+        "policyNumber": "未识别",
+        "claimNumber": "未识别",
+        "incidentLocation": "",
+        "incidentCause": "",
+        "insuredName": "",
+        "insuranceSubject": [],
+        "coveragePeriod": "",
+        "reportTime": "",
+        "inspectionTime": "",
+        "inspectionMethod": "现场查勘",
+        "estimatedLoss": ""
+      }
+    },
+    {
+      "image_path": "测试/银行卡/fa13cf89c2fce2f4a363e5270d7805b6.JPG",
+      "category": "银行卡",
+      "success": true,
+      "processing_time": 2.3095810413360596,
+      "result": {
+        "idNumber": "未识别",
+        "insuredPerson": "未识别",
+        "bankName": "贵州农信",
+        "cardNumber": "6217790001212405175",
+        "policyNumber": "未识别",
+        "claimNumber": "未识别",
+        "incidentLocation": "",
+        "incidentCause": "",
+        "insuredName": "",
+        "insuranceSubject": [],
+        "coveragePeriod": "",
+        "reportTime": "",
+        "inspectionTime": "",
+        "inspectionMethod": "现场查勘",
+        "estimatedLoss": ""
+      }
+    },
+    {
+      "image_path": "测试/银行卡/fdcba9c95497faa3916cf944ad2a8873.JPG",
+      "category": "银行卡",
+      "success": true,
+      "processing_time": 2.9373629093170166,
+      "result": {
+        "idNumber": "未识别",
+        "insuredPerson": "未识别",
+        "bankName": "贵州省农村信用社",
+        "cardNumber": "6228930001103894782",
+        "policyNumber": "未识别",
+        "claimNumber": "未识别",
+        "incidentLocation": "",
+        "incidentCause": "",
+        "insuredName": "",
+        "insuranceSubject": [],
+        "coveragePeriod": "",
+        "reportTime": "",
+        "inspectionTime": "",
+        "inspectionMethod": "现场查勘",
+        "estimatedLoss": ""
+      }
+    },
+    {
+      "image_path": "测试/系统截图/45f30a67671ff9cb9e512ff49040e719.JPG",
+      "category": "系统截图",
+      "success": true,
+      "processing_time": 21.497389793395996,
+      "result": {
+        "idNumber": "未识别",
+        "insuredPerson": "未识别",
+        "bankName": "未识别",
+        "cardNumber": "未识别",
+        "policyNumber": "PI6220255203N000000002",
+        "claimNumber": "R16220255203N000015207",
+        "incidentLocation": "贵州省道义市",
+        "incidentCause": "旋毛虫病",
+        "insuredName": "绥阳双胞胎猪业有限公司",
+        "insuranceSubject": [],
+        "coveragePeriod": "",
+        "reportTime": "2025年08月05日",
+        "inspectionTime": "2025年08月12日",
+        "inspectionMethod": "现场查勘",
+        "estimatedLoss": "620.00"
+      }
+    },
+    {
+      "image_path": "测试/系统截图/8030db48ec4896455c0dd1034b71333f.JPG",
+      "category": "系统截图",
+      "success": true,
+      "processing_time": 28.91348385810852,
+      "result": {
+        "idNumber": "未识别",
+        "insuredPerson": "未识别",
+        "bankName": "未识别",
+        "cardNumber": "未识别",
+        "policyNumber": "P6IY20255203N000000065",
+        "claimNumber": "R6IY20255203N000013958",
+        "incidentLocation": "贵州省遵义市",
+        "incidentCause": "猪肺疫",
+        "insuredName": "宋尔兵",
+        "insuranceSubject": [
+          "育肥猪"
+        ],
+        "coveragePeriod": "2025年03月05日 — 2025年09月04日",
+        "reportTime": "2025年07月22日",
+        "inspectionTime": "2025年07月23日",
+        "inspectionMethod": "现场查勘",
+        "estimatedLoss": "850.00"
+      }
+    },
+    {
+      "image_path": "测试/系统截图/ca3cb94b0f702f61cc20f6450fc5ac3e.JPG",
+      "category": "系统截图",
+      "success": true,
+      "processing_time": 19.672300100326538,
+      "result": {
+        "idNumber": "未识别",
+        "insuredPerson": "未识别",
+        "bankName": "未识别",
+        "cardNumber": "未识别",
+        "policyNumber": "PI6220255203N000000002",
+        "claimNumber": "R16220255203N000015228",
+        "incidentLocation": "贵州省遵义市",
+        "incidentCause": "",
+        "insuredName": "绥阳双胞胎猪业有限公司",
+        "insuranceSubject": [],
+        "coveragePeriod": "2025年06月27日 — 2025年12月26日",
+        "reportTime": "2025年08月05日",
+        "inspectionTime": "2025年08月06日",
+        "inspectionMethod": "现场查勘",
+        "estimatedLoss": ""
+      }
+    },
+    {
+      "image_path": "测试/系统截图/e37ef75ba754cb68feef72729e637f3c.JPG",
+      "category": "系统截图",
+      "success": true,
+      "processing_time": 25.30613613128662,
+      "result": {
+        "idNumber": "未识别",
+        "insuredPerson": "未识别",
+        "bankName": "未识别",
+        "cardNumber": "未识别",
+        "policyNumber": "P6JS20255203N000000019",
+        "claimNumber": "R6JS20255203N000015347",
+        "incidentLocation": "贵州省遵义市",
+        "incidentCause": "非传染病-[羊快疫]",
+        "insuredName": "习水县万源农业发展有限公司",
+        "insuranceSubject": [],
+        "coveragePeriod": "",
+        "reportTime": "2025年08月06日",
+        "inspectionTime": "2025年08月12日",
+        "inspectionMethod": "现场查勘",
+        "estimatedLoss": "1800.00"
+      }
+    }
+  ]
+}

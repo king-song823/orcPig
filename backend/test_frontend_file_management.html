@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>前端文件管理测试</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      .file-list {
+        margin: 20px 0;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        min-height: 100px;
+      }
+      .file-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px;
+        margin: 4px 0;
+        background: #f9f9f9;
+        border-radius: 4px;
+      }
+      .file-preview {
+        max-width: 100px;
+        max-height: 100px;
+        margin: 5px;
+        border-radius: 4px;
+      }
+      button {
+        background: #007bff;
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        margin: 5px;
+      }
+      button:hover {
+        background: #0056b3;
+      }
+      button.danger {
+        background: #dc3545;
+      }
+      button.danger:hover {
+        background: #c82333;
+      }
+      .status {
+        margin: 10px 0;
+        padding: 10px;
+        border-radius: 4px;
+      }
+      .status.info {
+        background: #d1ecf1;
+        color: #0c5460;
+      }
+      .status.success {
+        background: #d4edda;
+        color: #155724;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🧪 前端文件管理功能测试</h1>
+
+      <div class="status info">
+        <strong>测试说明：</strong>
+        <ul>
+          <li>上传多个图片文件</li>
+          <li>点击删除按钮删除单个文件</li>
+          <li>点击清除所有按钮清空所有文件</li>
+          <li>验证文件数量显示是否正确</li>
+          <li>验证OCR识别是否使用最新文件列表</li>
+        </ul>
+      </div>
+
+      <div>
+        <input type="file" id="fileInput" multiple accept="image/*" />
+        <button onclick="addFiles()">添加文件</button>
+        <button onclick="clearAll()" class="danger">清除所有</button>
+      </div>
+
+      <div class="status info">
+        <strong>当前文件数量：</strong> <span id="fileCount">0</span>
+      </div>
+
+      <div class="file-list" id="fileList">
+        <p>暂无文件</p>
+      </div>
+
+      <div>
+        <button onclick="testOCR()">测试OCR识别</button>
+      </div>
+
+      <div id="ocrResult" class="status" style="display: none">
+        <h3>OCR识别结果：</h3>
+        <pre id="ocrResultText"></pre>
+      </div>
+    </div>
+
+    <script>
+      let files = [];
+      let previewImages = [];
+
+      function addFiles() {
+        const input = document.getElementById("fileInput");
+        const newFiles = Array.from(input.files);
+
+        if (newFiles.length === 0) return;
+
+        // 过滤重复文件
+        const filtered = newFiles.filter(
+          (f) => !files.some((e) => e.name === f.name && e.size === f.size)
+        );
+
+        files = [...files, ...filtered];
+
+        // 创建预览
+        filtered.forEach((file) => {
+          const url = URL.createObjectURL(file);
+          previewImages.push({
+            name: file.name,
+            url: url,
+          });
+        });
+
+        updateDisplay();
+        input.value = null;
+      }
+
+      function removeFile(index) {
+        // 清理URL对象
+        URL.revokeObjectURL(previewImages[index].url);
+
+        // 删除文件
+        files = files.filter((_, idx) => idx !== index);
+        previewImages = previewImages.filter((_, idx) => idx !== index);
+
+        updateDisplay();
+      }
+
+      function clearAll() {
+        // 清理所有URL对象
+        previewImages.forEach((img) => URL.revokeObjectURL(img.url));
+
+        files = [];
+        previewImages = [];
+        updateDisplay();
+      }
+
+      function updateDisplay() {
+        const fileCount = document.getElementById("fileCount");
+        const fileList = document.getElementById("fileList");
+
+        fileCount.textContent = files.length;
+
+        if (files.length === 0) {
+          fileList.innerHTML = "<p>暂无文件</p>";
+        } else {
+          fileList.innerHTML = files
+            .map(
+              (file, index) => `
+                    <div class="file-item">
+                        <div>
+                            <img src="${
+                              previewImages[index].url
+                            }" class="file-preview" alt="${file.name}">
+                            <span>${file.name} (${(file.size / 1024).toFixed(
+                1
+              )}KB)</span>
+                        </div>
+                        <button onclick="removeFile(${index})" class="danger">删除</button>
+                    </div>
+                `
+            )
+            .join("");
+        }
+      }
+
+      async function testOCR() {
+        if (files.length === 0) {
+          alert("请先上传文件");
+          return;
+        }
+
+        const formData = new FormData();
+        files.forEach((file) => formData.append("files", file));
+
+        try {
+          const response = await fetch("http://localhost:8011/parse-docs", {
+            method: "POST",
+            body: formData,
+          });
+
+          if (!response.ok) throw new Error("解析失败");
+          const data = await response.json();
+
+          document.getElementById("ocrResultText").textContent = JSON.stringify(
+            data,
+            null,
+            2
+          );
+          document.getElementById("ocrResult").style.display = "block";
+          document.getElementById("ocrResult").className = "status success";
+
+          console.log("OCR 结果:", data);
+          console.log(
+            "识别的文件:",
+            files.map((f) => f.name)
+          );
+        } catch (error) {
+          document.getElementById(
+            "ocrResultText"
+          ).textContent = `错误: ${error.message}`;
+          document.getElementById("ocrResult").style.display = "block";
+          document.getElementById("ocrResult").className = "status danger";
+        }
+      }
+
+      // 初始化显示
+      updateDisplay();
+    </script>
+  </body>
+</html>

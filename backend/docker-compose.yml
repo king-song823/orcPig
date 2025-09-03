@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  pdocr:
+    build: .
+    ports:
+      - "8010:8010"
+    environment:
+      PYTHONUNBUFFERED: 1
+    restart: always
