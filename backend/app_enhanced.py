@@ -294,6 +294,271 @@ def enhanced_ocr_image(image_bytes):
         logger.error(f"增强OCR错误: {e}")
         return []
 
+def detect_and_correct_rotation(img):
+    """检测并校正猪耳标图像的旋转角度"""
+    try:
+        # 转换为灰度图
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # 边缘检测
+        edges = cv2.Canny(gray, 50, 150, apertureSize=3)
+        
+        # 霍夫直线检测
+        lines = cv2.HoughLines(edges, 1, np.pi/180, threshold=100)
+        
+        if lines is not None:
+            angles = []
+            for line in lines:
+                rho, theta = line[0]
+                angle = theta * 180 / np.pi
+                # 将角度标准化到 -45 到 45 度之间
+                if angle > 45:
+                    angle = angle - 90
+                elif angle < -45:
+                    angle = angle + 90
+                angles.append(angle)
+            
+            if angles:
+                # 计算平均角度
+                avg_angle = np.mean(angles)
+                logger.info(f"🔍 检测到旋转角度: {avg_angle:.2f}度")
+                
+                # 如果角度大于阈值，进行旋转校正
+                if abs(avg_angle) > 2:  # 2度阈值
+                    h, w = img.shape[:2]
+                    center = (w // 2, h // 2)
+                    rotation_matrix = cv2.getRotationMatrix2D(center, -avg_angle, 1.0)
+                    corrected_img = cv2.warpAffine(img, rotation_matrix, (w, h), 
+                                                 flags=cv2.INTER_CUBIC, 
+                                                 borderMode=cv2.BORDER_REPLICATE)
+                    logger.info(f"✅ 已校正旋转角度: {avg_angle:.2f}度")
+                    return corrected_img
+        
+        return img
+        
+    except Exception as e:
+        logger.error(f"旋转检测错误: {e}")
+        return img
+
+def preprocess_image_for_eartag(img):
+    """专门针对猪耳标优化的图像预处理"""
+    try:
+        # 首先进行旋转检测和校正
+        corrected_img = detect_and_correct_rotation(img)
+        
+        # 转换为灰度图
+        gray = cv2.cvtColor(corrected_img, cv2.COLOR_BGR2GRAY)
+        
+        # 高斯模糊去噪
+        denoised = cv2.GaussianBlur(gray, (3, 3), 0)
+        
+        # 自适应直方图均衡化，增强对比度
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(denoised)
+        
+        # 锐化处理，突出数字边缘
+        kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+        sharpened = cv2.filter2D(enhanced, -1, kernel)
+        
+        # 自适应阈值二值化
+        binary = cv2.adaptiveThreshold(
+            sharpened, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+            cv2.THRESH_BINARY, 11, 2
+        )
+        
+        # 形态学操作，去除噪点
+        kernel = np.ones((2, 2), np.uint8)
+        cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+        cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel)
+        
+        # 确保图像是3通道的，因为PaddleOCR期望彩色图像
+        if len(cleaned.shape) == 2:
+            cleaned = cv2.cvtColor(cleaned, cv2.COLOR_GRAY2BGR)
+        
+        return cleaned
+        
+    except Exception as e:
+        logger.error(f"猪耳标图像预处理错误: {e}")
+        return img
+
+def create_rotated_images(img, angles=[0, 90, 180, 270, 45, 135, 225, 315]):
+    """创建多个旋转角度的图像用于识别颠倒的数字"""
+    rotated_images = []
+    for angle in angles:
+        if angle == 0:
+            rotated_images.append(img)
+        else:
+            # 计算旋转中心
+            height, width = img.shape[:2]
+            center = (width // 2, height // 2)
+            
+            # 创建旋转矩阵
+            rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+            
+            # 执行旋转
+            rotated = cv2.warpAffine(img, rotation_matrix, (width, height))
+            rotated_images.append(rotated)
+    
+    return rotated_images
+
+def enhance_image_for_blur_detection(img):
+    """专门针对模糊图像的增强处理"""
+    try:
+        # 转换为灰度图
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # 1. 应用CLAHE增强对比度（更强）
+        clahe = cv2.createCLAHE(clipLimit=5.0, tileGridSize=(8,8))
+        enhanced = clahe.apply(gray)
+        
+        # 2. 高斯模糊去噪
+        denoised = cv2.GaussianBlur(enhanced, (3, 3), 0)
+        
+        # 3. 锐化处理
+        kernel_sharpen = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+        sharpened = cv2.filter2D(denoised, -1, kernel_sharpen)
+        
+        # 4. 自适应阈值二值化（针对模糊图像优化）
+        binary = cv2.adaptiveThreshold(sharpened, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 21, 5)
+        
+        # 5. 形态学操作：闭运算连接断开的笔画
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+        
+        # 6. 形态学操作：开运算去除小噪点
+        kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+        cleaned = cv2.morphologyEx(closed, cv2.MORPH_OPEN, kernel_open)
+        
+        # 确保图像是3通道的
+        if len(cleaned.shape) == 2:
+            cleaned = cv2.cvtColor(cleaned, cv2.COLOR_GRAY2BGR)
+        
+        return cleaned
+        
+    except Exception as e:
+        logger.error(f"模糊图像增强错误: {e}")
+        return img
+
+def is_valid_eartag_number(text):
+    """判断是否为有效的耳标数字"""
+    # 清理文本，只保留数字和字母
+    clean_text = ''.join(c for c in text if c.isalnum())
+    
+    # 耳标数字通常的特征：
+    # 1. 长度必须是7位或8位
+    # 2. 主要包含数字
+    # 3. 可能包含少量字母
+    if len(clean_text) != 7 and len(clean_text) != 8:
+        return False
+    
+    # 数字占比应该超过70%
+    digit_count = sum(1 for c in clean_text if c.isdigit())
+    if digit_count / len(clean_text) < 0.7:
+        return False
+    
+    return True
+
+def enhanced_ocr_image_for_eartag(image_bytes):
+    """专门针对猪耳标优化的OCR识别 - 智能分层版"""
+    try:
+        # 将字节数据转换为numpy数组
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if img is None:
+            logger.error("❌ 无法解码图像")
+            return []
+        
+        # 使用专门针对耳标的OCR参数
+        eartag_ocr = PaddleOCR(
+            use_angle_cls=True,      # 启用文本方向分类
+            lang='ch',               # 中文+数字
+            use_gpu=False,           # CPU 模式
+            det_db_thresh=0.01,      # 进一步降低检测阈值，提高检测敏感度
+            det_db_box_thresh=0.1,   # 进一步降低框阈值
+            det_db_unclip_ratio=4.0, # 进一步增加未裁剪比例
+            drop_score=0.01,         # 进一步降低置信度阈值
+            max_text_length=50,      # 增加最大文本长度
+            show_log=False
+        )
+        
+        all_results = []
+        
+        # === 第一层：快速识别（原图 + 多种预处理）===
+        logger.info("🐷 【第一层】快速识别...")
+        
+        # 1. 原图识别
+        result_original = eartag_ocr.ocr(img, cls=True)
+        if result_original and result_original[0]:
+            all_results.extend(result_original[0])
+        
+        # 2. 基础预处理图像识别
+        processed_img = preprocess_image_for_eartag(img)
+        result_processed = eartag_ocr.ocr(processed_img, cls=True)
+        if result_processed and result_processed[0]:
+            all_results.extend(result_processed[0])
+        
+        # 3. 增强预处理图像识别
+        enhanced_img = enhance_image_for_blur_detection(img)
+        result_enhanced = eartag_ocr.ocr(enhanced_img, cls=True)
+        if result_enhanced and result_enhanced[0]:
+            all_results.extend(result_enhanced[0])
+        
+        # 检查第一层识别结果质量
+        eartag_candidates = []
+        for line in all_results:
+            if len(line) >= 2:
+                text = line[1][0]
+                confidence = line[1][1]
+                clean_text = ''.join(c for c in text if c.isalnum())
+                if is_valid_eartag_number(clean_text):
+                    eartag_candidates.append((text, confidence, line[0]))
+        
+        logger.info(f"🐷 第一层识别结果：检测到 {len(eartag_candidates)} 个耳标候选数字")
+        
+        # 智能判断是否需要增强处理
+        need_enhancement = len(eartag_candidates) < 2
+        
+        # === 第二层：多角度旋转（仅在需要时执行）===
+        if need_enhancement:
+            logger.info("🐷 【第二层】多角度旋转处理...")
+            
+            # 多角度旋转识别
+            rotated_images = create_rotated_images(img, [0, 90, 180, 270, 45, 135, 225, 315])
+            
+            for i, rotated_img in enumerate(rotated_images):
+                result_rotated = eartag_ocr.ocr(rotated_img, cls=True)
+                if result_rotated and result_rotated[0]:
+                    all_results.extend(result_rotated[0])
+            
+            logger.info("🐷 第二层多角度旋转处理完成")
+        
+        # 处理所有识别结果
+        texts_with_boxes = []
+        seen_texts = set()  # 用于去重
+        
+        for line in all_results:
+            if len(line) >= 2:
+                text = line[1][0]
+                confidence = line[1][1]
+                bbox = line[0]
+                
+                # 去重：避免重复的文本
+                if text not in seen_texts:
+                    seen_texts.add(text)
+                    texts_with_boxes.append({
+                        "text": text,
+                        "confidence": confidence,
+                        "bbox": bbox
+                    })
+        
+        logger.info(f"✅ 猪耳标智能分层OCR识别到 {len(texts_with_boxes)} 个文本块")
+        return texts_with_boxes
+                
+    except Exception as e:
+        logger.error(f"❌ 猪耳标智能分层OCR识别出错: {e}")
+        return []
+
 # 增强版身份证识别
 def extract_id_card_enhanced(texts_with_boxes):
     name = None
@@ -453,6 +718,85 @@ def extract_bank_card_enhanced(texts_with_boxes):
             bank_name = "农村信用社"
     
     return {"bank_name": bank_name, "card_number": card_number}
+
+# 增强版猪耳标识别
+def extract_pig_ear_tag_enhanced(texts_with_boxes):
+    """提取猪耳标中的耳标号码 - 7位和8位数字组合"""
+    texts = [b["text"] for b in texts_with_boxes]
+    
+    # 初始化结果
+    result = {
+        "ear_tag_7digit": None,  # 7位耳标号码
+        "ear_tag_8digit": None,  # 8位耳标号码
+    }
+    
+    # 收集所有数字，使用更精确的过滤
+    all_numbers = []
+    for text in texts:
+        # 清理文本，只保留数字
+        cleaned = re.sub(r'\D', '', text)
+        
+        # 更严格的数字长度过滤：6-10位
+        if len(cleaned) >= 6 and len(cleaned) <= 10:
+            # 避免识别身份证号、电话号码、日期等
+            if not any(keyword in text for keyword in [
+                '拍摄人', '报案号', '时间', '地点', '经纬度', '身份证', '电话', 
+                '年', '月', '日', '时', '分', '秒', 'GPS', '坐标'
+            ]):
+                # 进一步过滤：排除明显不是耳标号码的数字
+                if not re.match(r'^(19|20)\d{2}', cleaned):  # 排除年份
+                    if not re.match(r'^\d{4}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])', cleaned):  # 排除日期
+                        all_numbers.append(cleaned)
+        
+        # 也尝试从原始文本中提取数字（可能包含字母或符号）
+        # 查找连续的数字序列
+        number_matches = re.findall(r'\d{6,10}', text)
+        for match in number_matches:
+            if match not in all_numbers:
+                # 检查是否包含耳标相关的上下文
+                if not any(keyword in text for keyword in [
+                    '拍摄人', '报案号', '时间', '地点', '经纬度', '身份证', '电话', 
+                    '年', '月', '日', '时', '分', '秒', 'GPS', '坐标'
+                ]):
+                    all_numbers.append(match)
+    
+    # 去重并排序
+    all_numbers = list(set(all_numbers))
+    all_numbers.sort()
+    
+    # 调试信息
+    logger.info(f"🔍 猪耳标OCR识别到的所有文本: {texts}")
+    logger.info(f"🔍 提取到的所有数字: {all_numbers}")
+    
+    # 寻找7位和8位数字
+    seven_digit_numbers = [num for num in all_numbers if len(num) == 7]
+    eight_digit_numbers = [num for num in all_numbers if len(num) == 8]
+    
+    logger.info(f"🔍 7位数字候选: {seven_digit_numbers}")
+    logger.info(f"🔍 8位数字候选: {eight_digit_numbers}")
+    
+    # 智能选择最合适的7位和8位数字
+    if seven_digit_numbers:
+        # 优先选择不以0开头的7位数字（更可能是耳标号码）
+        non_zero_start = [num for num in seven_digit_numbers if not num.startswith('0')]
+        if non_zero_start:
+            result["ear_tag_7digit"] = non_zero_start[0]
+        else:
+            result["ear_tag_7digit"] = seven_digit_numbers[0]
+    
+    if eight_digit_numbers:
+        # 优先选择不以0开头的8位数字
+        non_zero_start = [num for num in eight_digit_numbers if not num.startswith('0')]
+        if non_zero_start:
+            result["ear_tag_8digit"] = non_zero_start[0]
+        else:
+            result["ear_tag_8digit"] = eight_digit_numbers[0]
+    
+    # 清理结果，移除None值
+    cleaned_result = {k: v for k, v in result.items() if v}
+    
+    logger.info(f"📌 增强猪耳标提取结果: {cleaned_result}")
+    return cleaned_result
 
 # 增强版系统截图识别
 def extract_system_screenshot_enhanced(texts_with_boxes):
@@ -739,13 +1083,14 @@ async def parse_docs(request: Request):
         return response.json({"error": "No files uploaded"}, status=400)
 
     files = request.files.getlist("files")
-    if len(files) > 20:
-        return response.json({"error": "最多上传 20 张图片"}, status=400)
+    if len(files) > 50:
+        return response.json({"error": "最多上传 50 张图片"}, status=400)
 
     results = {
         "id_card": None,
         "bank_card": None,
         "system_screenshot": None,
+        "pig_ear_tags": [],  # 猪耳标列表，支持多张
     }
     loop = asyncio.get_event_loop()
 
@@ -773,8 +1118,27 @@ async def parse_docs(request: Request):
         # 检查系统截图特征
         has_screenshot_features = any(k in text_str for k in ["保单号", "报案号", "被保险人", "保险标的", "出险日期", "查勘", "估损金额", "理赔", "承保公司"])
         
-        # 改进的分类逻辑：优先识别系统截图，然后身份证，最后银行卡
-        if has_screenshot_features:
+        # 检查猪耳标特征 - 优先检查7位和8位数字组合
+        has_7digit = any(re.search(r'\b\d{7}\b', text) for text in texts)
+        has_8digit = any(re.search(r'\b\d{8}\b', text) for text in texts)
+        has_ear_tag_features = (has_7digit and has_8digit) or \
+                              any(k in text_str for k in ["拍摄人", "查勘地点", "拍摄地点", "经纬度"])
+        
+        # 改进的分类逻辑：优先识别猪耳标，然后系统截图，然后身份证，最后银行卡
+        if has_ear_tag_features:
+            # 如果有猪耳标特征，使用专门的猪耳标OCR识别
+            logger.info("🐷 检测到猪耳标特征，使用专用OCR识别")
+            eartag_texts_with_boxes = await loop.run_in_executor(None, enhanced_ocr_image_for_eartag, content)
+            
+            # 如果专用OCR没有识别到文本，使用普通OCR作为备用
+            if not eartag_texts_with_boxes:
+                logger.info("🐷 专用OCR未识别到文本，使用普通OCR作为备用")
+                eartag_texts_with_boxes = texts_with_boxes
+            
+            ear_tag_result = extract_pig_ear_tag_enhanced(eartag_texts_with_boxes)
+            if ear_tag_result.get("ear_tag_7digit") or ear_tag_result.get("ear_tag_8digit"):
+                results["pig_ear_tags"].append(ear_tag_result)
+        elif has_screenshot_features:
             # 如果有系统截图特征，识别为系统截图
             if not results["system_screenshot"]:
                 results["system_screenshot"] = extract_system_screenshot_enhanced(texts_with_boxes)
@@ -808,6 +1172,8 @@ async def parse_docs(request: Request):
         "inspectionMethod": results["system_screenshot"].get("inspection_method", "未识别") if results["system_screenshot"] else "未识别",
         "estimatedLoss": results["system_screenshot"].get("estimated_loss", "未识别") if results["system_screenshot"] else "未识别",
         "incidentCause": results["system_screenshot"].get("incident_cause", "未识别") if results["system_screenshot"] else "未识别",
+        # 猪耳标信息
+        "pigEarTags": results["pig_ear_tags"] if results["pig_ear_tags"] else [],
     }
 
     return response.json(form_data)
