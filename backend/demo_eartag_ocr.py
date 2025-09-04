@@ -206,112 +206,125 @@ ocr = PaddleOCR(
 )
 
 # === 第五步：设置图片路径 ===
-image_path = 'pig15.JPG'
+test_images = [
+    '测试/猪耳标/pig1.JPG',
+    '测试/猪耳标/pig2.JPG', 
+    '测试/猪耳标/pig3.JPG',
+    '测试/猪耳标/pig4.JPG',
+    '测试/猪耳标/pig5.JPG'
+]
 
 # === 第六步：执行多角度识别 ===
 print("🔍 正在识别猪耳标中的所有数字...")
 print("🔄 使用多角度检测策略...")
 
-try:
-    all_results = []
+# 循环测试所有图片
+for img_idx, image_path in enumerate(test_images, 1):
+    print(f"\n{'='*80}")
+    print(f"🐷 测试图片 {img_idx}: {image_path}")
+    print(f"{'='*80}")
     
-    # 1. 原图识别
-    print("📸 识别原图...")
-    result_original = ocr.ocr(image_path, det=True, rec=True)
-    if result_original:
-        all_results.extend(result_original)
-    
-    # 2. 预处理图像识别
-    print("🔄 识别预处理图像...")
-    processed_image = preprocess_eartag_image(image_path)
-    temp_path = 'temp_processed.jpg'
-    cv2.imwrite(temp_path, processed_image)
-    
-    result_processed = ocr.ocr(temp_path, det=True, rec=True)
-    if result_processed:
-        all_results.extend(result_processed)
-    
-    # 3. 多角度旋转识别
-    print("🔄 识别旋转图像...")
-    rotated_images = create_rotated_images(image_path, [90, 180, 270])
-    
-    for i, rotated_img in enumerate(rotated_images):
-        temp_path = f'temp_rotated_{i}.jpg'
-        cv2.imwrite(temp_path, rotated_img)
+    try:
+        all_results = []
         
-        result_rotated = ocr.ocr(temp_path, det=True, rec=True)
-        if result_rotated:
-            all_results.extend(result_rotated)
+        # 1. 原图识别
+        print("📸 识别原图...")
+        result_original = ocr.ocr(image_path, det=True, rec=True)
+        if result_original:
+            all_results.extend(result_original)
         
-        # 清理临时文件
-        import os
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-    
-    # 清理预处理临时文件
-    if os.path.exists('temp_processed.jpg'):
-        os.remove('temp_processed.jpg')
+        # 2. 预处理图像识别
+        print("🔄 识别预处理图像...")
+        processed_image = preprocess_eartag_image(image_path)
+        temp_path = f'temp_processed_{img_idx}.jpg'
+        cv2.imwrite(temp_path, processed_image)
         
-except Exception as e:
-    print(f"❌ 识别失败: {e}")
-    print("请检查图片路径是否正确")
-    exit()
-
-# === 第七步：结果分析和分类 ===
-print("\n" + "="*60)
-print("📊 识别结果分析")
-print("="*60)
-
-# 分类存储结果
-eartag_numbers = []      # 耳标数字
-other_numbers = []       # 其他数字
-text_content = []        # 文本内容
-all_texts = []
-
-# 处理所有识别结果
-for line in all_results:
-    if line:
-        for word_info in line:
-            try:
-                text = word_info[1][0]        # 识别的文字
-                confidence = word_info[1][1]  # 置信度
-                bbox = word_info[0]           # 边界框
-                
-                all_texts.append((text, confidence, bbox))
-                
-                # 分类处理
-                if is_valid_eartag_number(text):
-                    eartag_numbers.append((text, confidence, bbox))
-                elif any(c.isdigit() for c in text):
-                    other_numbers.append((text, confidence, bbox))
-                else:
-                    text_content.append((text, confidence, bbox))
-                    
-            except:
-                continue
-
-# === 第八步：输出分类结果 ===
-
-# 1. 耳标数字（主要关注）
-print("\n🎯 【耳标数字】- 主要识别目标：")
-if eartag_numbers:
-    # 按置信度排序
-    eartag_numbers.sort(key=lambda x: x[1], reverse=True)
-    
-    # 去重显示
-    seen_numbers = set()
-    for text, confidence, bbox in eartag_numbers:
-        clean_text = ''.join(c for c in text if c.isalnum())
-        if clean_text not in seen_numbers:
-            print(f"  📌 '{text}' (置信度: {confidence:.4f})")
-            seen_numbers.add(clean_text)
+        result_processed = ocr.ocr(temp_path, det=True, rec=True)
+        if result_processed:
+            all_results.extend(result_processed)
+        
+        # 3. 多角度旋转识别
+        print("🔄 识别旋转图像...")
+        rotated_images = create_rotated_images(image_path, [90, 180, 270])
+        
+        for i, rotated_img in enumerate(rotated_images):
+            temp_path = f'temp_rotated_{img_idx}_{i}.jpg'
+            cv2.imwrite(temp_path, rotated_img)
             
-            # 提取具体数字
-            extracted = extract_eartag_numbers(text)
-            if extracted:
-                print(f"      🔢 提取的数字: {', '.join(extracted)}")
-else:
-    print("  ⚠️ 未识别到明显的耳标数字")
+            result_rotated = ocr.ocr(temp_path, det=True, rec=True)
+            if result_rotated:
+                all_results.extend(result_rotated)
+            
+            # 清理临时文件
+            import os
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        
+        # 清理预处理临时文件
+        temp_processed_path = f'temp_processed_{img_idx}.jpg'
+        if os.path.exists(temp_processed_path):
+            os.remove(temp_processed_path)
+        
+    except Exception as e:
+        print(f"❌ 识别失败: {e}")
+        print("请检查图片路径是否正确")
+        continue
+
+    # === 第七步：结果分析和分类 ===
+    print("\n" + "="*60)
+    print("📊 识别结果分析")
+    print("="*60)
+
+    # 分类存储结果
+    eartag_numbers = []      # 耳标数字
+    other_numbers = []       # 其他数字
+    text_content = []        # 文本内容
+    all_texts = []
+
+    # 处理所有识别结果
+    for line in all_results:
+        if line:
+            for word_info in line:
+                try:
+                    text = word_info[1][0]        # 识别的文字
+                    confidence = word_info[1][1]  # 置信度
+                    bbox = word_info[0]           # 边界框
+                    
+                    all_texts.append((text, confidence, bbox))
+                    
+                    # 分类处理
+                    if is_valid_eartag_number(text):
+                        eartag_numbers.append((text, confidence, bbox))
+                    elif any(c.isdigit() for c in text):
+                        other_numbers.append((text, confidence, bbox))
+                    else:
+                        text_content.append((text, confidence, bbox))
+                        
+                except:
+                    continue
+
+    # === 第八步：输出分类结果 ===
+
+    # 1. 耳标数字（主要关注）
+    print("\n🎯 【耳标数字】- 主要识别目标：")
+    if eartag_numbers:
+        # 按置信度排序
+        eartag_numbers.sort(key=lambda x: x[1], reverse=True)
+        
+        # 去重显示
+        seen_numbers = set()
+        for text, confidence, bbox in eartag_numbers:
+            clean_text = ''.join(c for c in text if c.isalnum())
+            if clean_text not in seen_numbers:
+                print(f"  📌 '{text}' (置信度: {confidence:.4f})")
+                seen_numbers.add(clean_text)
+                
+                # 提取具体数字
+                extracted = extract_eartag_numbers(text)
+                if extracted:
+                    print(f"      🔢 提取的数字: {', '.join(extracted)}")
+    else:
+        print("  ⚠️ 未识别到明显的耳标数字")
 
 # 2. 其他数字
 print("\n🔢 【其他数字】- 可能相关的数字：")

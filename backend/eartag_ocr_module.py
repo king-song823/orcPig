@@ -18,24 +18,21 @@ class EartagOCR:
     """猪耳标OCR识别类"""
     
     def __init__(self):
-        """初始化OCR引擎"""
+        """初始化OCR引擎 - 基于demo_eartag_ocr.py的优化参数"""
         self.ocr = PaddleOCR(
             use_angle_cls=True,      # 文本方向分类
             lang='ch',               # 中文+数字
             use_gpu=False,           # CPU 模式
-            det_db_thresh=0.005,     # 极低检测阈值，提高8位数字检测敏感度
-            det_db_box_thresh=0.05,  # 极低框阈值
-            det_db_unclip_ratio=5.0, # 增加未裁剪比例，捕获更多数字
-            drop_score=0.005,        # 极低置信度阈值
-            max_text_length=100,     # 增加最大文本长度
-            det_limit_side_len=960,  # 增加检测图像尺寸
-            det_limit_type='max',    # 使用最大边限制
-            rec_batch_num=6,         # 增加识别批处理数量
+            det_db_thresh=0.05,      # 进一步降低检测阈值，提高检测敏感度
+            det_db_box_thresh=0.2,   # 进一步降低框阈值
+            det_db_unclip_ratio=3.0, # 进一步增加未裁剪比例
+            drop_score=0.05,         # 进一步降低置信度阈值
+            max_text_length=50,      # 增加最大文本长度
             show_log=False
         )
     
     def is_valid_eartag_number(self, text):
-        """判断是否为有效的耳标数字"""
+        """判断是否为有效的耳标数字（基于demo_eartag_ocr.py的验证逻辑）"""
         # 清理文本，只保留数字和字母
         clean_text = ''.join(c for c in text if c.isalnum())
         
@@ -51,7 +48,138 @@ class EartagOCR:
         if digit_count / len(clean_text) < 0.7:
             return False
         
+        # 过滤掉明显的日期格式（如2025-08-0, 2025080等）
+        if self._is_date_format(clean_text):
+            return False
+        
         return True
+    
+    def _is_date_format(self, text):
+        """检查是否为日期格式，用于过滤误识别"""
+        # 检查是否包含常见的日期模式
+        date_patterns = [
+            r'^20\d{2}[0-1]\d[0-3]\d$',  # 2025080 格式
+            r'^20\d{2}-[0-1]\d-[0-3]\d$',  # 2025-08-0 格式
+            r'^\d{4}-\d{2}-\d{1}$',  # 2025-08-0 格式
+        ]
+        
+        for pattern in date_patterns:
+            if re.match(pattern, text):
+                return True
+        
+        # 检查是否以202开头且长度合适（可能是年份）
+        if text.startswith('202') and len(text) >= 6:
+            return True
+            
+        return False
+    
+    def extract_eartag_numbers(self, text):
+        """从文本中提取可能的耳标数字（基于demo_eartag_ocr.py）"""
+        # 使用正则表达式匹配连续的数字序列
+        numbers = re.findall(r'\d{4,}', text)
+        return numbers
+    
+    def extract_circular_rois(self, img):
+        """检测并提取圆形耳标区域，返回裁剪后的ROI列表。
+        优先只对这些圆形区域进行OCR，过滤其他区域干扰。
+        """
+        try:
+            if img is None:
+                return []
+            # 转灰度与降噪
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img.copy()
+            blur = cv2.GaussianBlur(gray, (7, 7), 1.5)
+            # Hough 圆检测 - 简化参数以提高性能
+            param_sets = [
+                (1.2, 50, 60, 20),  # 只保留一组参数
+            ]
+            rois = []
+            h, w = gray.shape[:2]
+            for dp, minDist, param1, param2 in param_sets:
+                circles = cv2.HoughCircles(
+                    blur,
+                    cv2.HOUGH_GRADIENT,
+                    dp=dp,
+                    minDist=min(h, w) // 8,
+                    param1=param1,
+                    param2=param2,
+                    minRadius=min(h, w) // 12,
+                    maxRadius=min(h, w) // 2,
+                )
+                if circles is not None:
+                    circles = np.uint16(np.around(circles))
+                    # 只保留最多3个半径较大的圆以避免超时
+                    sorted_circles = sorted(circles[0, :], key=lambda x: x[2], reverse=True)[:3]
+                    for c in sorted_circles:
+                        cx, cy, r = int(c[0]), int(c[1]), int(c[2])
+                        # 创建圆形掩膜
+                        mask = np.zeros_like(gray)
+                        cv2.circle(mask, (cx, cy), r, 255, -1)
+                        masked = cv2.bitwise_and(img, img, mask=mask)
+                        # 以圆为中心裁剪正方形ROI，带边距
+                        margin = int(r * 0.2)
+                        x1 = max(0, cx - r - margin)
+                        y1 = max(0, cy - r - margin)
+                        x2 = min(w, cx + r + margin)
+                        y2 = min(h, cy + r + margin)
+                        roi = masked[y1:y2, x1:x2]
+                        # 过滤极小区域
+                        if roi is not None and roi.size > 0 and roi.shape[0] > 20 and roi.shape[1] > 20:
+                            rois.append(roi)
+                if rois:
+                    break
+            return rois
+        except Exception as e:
+            logger.error(f"圆形ROI提取错误: {e}")
+            return []
+    
+    def extract_numbers_from_mixed_text(self, text):
+        """从混合文本中提取7位和8位数字"""
+        import re
+        # 提取所有连续的数字序列
+        numbers = re.findall(r'\d+', text)
+        valid_numbers = []
+        
+        for num in numbers:
+            if len(num) == 7 or len(num) == 8:
+                valid_numbers.append(num)
+        
+        return valid_numbers
+    
+    def clean_text_for_eartag(self, text):
+        """清理文本，去除中文字符和特殊符号，只保留数字和字母"""
+        import re
+        # 只保留数字和字母
+        cleaned = re.sub(r'[^\w]', '', text)
+        # 去除中文字符（保留数字和英文字母）
+        cleaned = re.sub(r'[^\x00-\x7F]', '', cleaned)
+        return cleaned
+    
+    def post_process_eartag_numbers(self, numbers):
+        """后处理耳标数字，进行合理性检查和修正（参考demo_eartag_ocr.py）"""
+        processed_numbers = []
+        
+        for number, confidence in numbers:
+            original_number = number
+            processed_number = number
+            
+            # 1. 检查数字的合理性
+            if len(processed_number) in [7, 8]:
+                # 检查是否包含过多重复数字（可能识别错误）
+                digit_counts = {}
+                for digit in processed_number:
+                    digit_counts[digit] = digit_counts.get(digit, 0) + 1
+                
+                # 如果某个数字出现超过3次，可能有问题
+                max_repeat = max(digit_counts.values())
+                if max_repeat > 3:
+                    logger.warning(f"⚠️ 数字 {processed_number} 包含重复数字过多，可能识别有误")
+                    # 对于重复数字过多的数字，降低其优先级但不完全排除
+                    confidence = confidence * 0.5
+            
+            processed_numbers.append((processed_number, confidence, original_number))
+        
+        return processed_numbers
     
     def detect_and_correct_rotation(self, img):
         """检测并校正图像旋转"""
@@ -177,8 +305,8 @@ class EartagOCR:
             logger.error(f"猪耳标图像预处理错误: {e}")
             return [img]
     
-    def create_rotated_images(self, img, angles=[0, 90, 180, 270, 45, 135, 225, 315]):
-        """创建多个旋转角度的图像用于识别颠倒的数字"""
+    def create_rotated_images(self, img, angles=[0, 90, 180, 270]):
+        """创建多个旋转角度的图像用于识别颠倒的数字（基于demo_eartag_ocr.py）"""
         rotated_images = []
         for angle in angles:
             if angle == 0:
@@ -239,7 +367,7 @@ class EartagOCR:
             return img
     
     def enhanced_ocr_image_for_eartag(self, image_bytes):
-        """增强版猪耳标OCR识别 - 智能分层策略"""
+        """增强版猪耳标OCR识别 - 基于demo_eartag_ocr.py的多角度策略"""
         try:
             # 解码图像
             nparr = np.frombuffer(image_bytes, np.uint8)
@@ -251,72 +379,74 @@ class EartagOCR:
             
             all_results = []
             
-            # === 第一层：快速识别（原图 + 多种预处理）===
-            logger.info("🐷 【第一层】快速识别...")
+            # === 第一层：原图识别 ===
+            logger.info("🐷 【第一层】原图识别...")
+            try:
+                result_original = self.ocr.ocr(img, det=True, rec=True)
+                if result_original:
+                    all_results.extend(result_original)
+            except Exception as e:
+                logger.warning(f"原图OCR失败: {e}")
             
-            # 1. 原图识别
-            result_original = self.ocr.ocr(img, cls=True)
-            if result_original and result_original[0]:
-                all_results.extend(result_original[0])
-            
-            # 2. 多种预处理图像识别
-            processed_imgs = self.preprocess_image_for_eartag(img)
-            for processed_img in processed_imgs:
-                result_processed = self.ocr.ocr(processed_img, cls=True)
-                if result_processed and result_processed[0]:
-                    all_results.extend(result_processed[0])
-            
-            # 3. 增强预处理图像识别
-            enhanced_img = self.enhance_image_for_blur_detection(img)
-            result_enhanced = self.ocr.ocr(enhanced_img, cls=True)
-            if result_enhanced and result_enhanced[0]:
-                all_results.extend(result_enhanced[0])
-            
-            # 检查第一层是否检测到足够的耳标候选数字
-            eartag_candidates = 0
-            for result in all_results:
-                if result and len(result) >= 2:
-                    text = result[1][0]
-                    if self.is_valid_eartag_number(text):
-                        eartag_candidates += 1
-            
-            logger.info(f"🐷 第一层识别结果：检测到 {eartag_candidates} 个耳标候选数字")
-            
-            # === 第二层：多角度旋转处理（如果需要）===
-            if eartag_candidates < 2:
-                logger.info("🐷 【第二层】多角度旋转处理...")
+            # === 第二层：预处理图像识别 ===
+            logger.info("🐷 【第二层】预处理图像识别...")
+            try:
+                # 使用demo_eartag_ocr.py的预处理方法
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+                enhanced = clahe.apply(gray)
+                denoised = cv2.GaussianBlur(enhanced, (3, 3), 0)
+                binary = cv2.adaptiveThreshold(denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+                cleaned = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
                 
-                # 创建多角度旋转图像
-                rotated_images = self.create_rotated_images(img)
+                result_processed = self.ocr.ocr(cleaned, det=True, rec=True)
+                if result_processed:
+                    all_results.extend(result_processed)
+            except Exception as e:
+                logger.warning(f"预处理OCR失败: {e}")
+            
+            # === 第三层：多角度旋转识别（demo_eartag_ocr.py的核心优势）===
+            logger.info("🐷 【第三层】多角度旋转识别...")
+            try:
+                rotated_images = self.create_rotated_images(img, [90, 180, 270])
                 
                 for rotated_img in rotated_images:
-                    result_rotated = self.ocr.ocr(rotated_img, cls=True)
-                    if result_rotated and result_rotated[0]:
-                        all_results.extend(result_rotated[0])
+                    try:
+                        result_rotated = self.ocr.ocr(rotated_img, det=True, rec=True)
+                        if result_rotated:
+                            all_results.extend(result_rotated)
+                    except Exception as e:
+                        logger.warning(f"旋转图像OCR失败: {e}")
                 
-                logger.info("🐷 第二层多角度旋转处理完成")
+                logger.info("🐷 多角度旋转识别完成")
+            except Exception as e:
+                logger.warning(f"多角度旋转识别失败: {e}")
             
-            # 合并和去重结果
+            # 处理识别结果
             unique_results = []
             seen_texts = set()
             
             for result in all_results:
-                if result and len(result) >= 2:
-                    text = result[1][0]
-                    confidence = result[1][1]
-                    
-                    # 清理文本用于去重
-                    clean_text = ''.join(c for c in text if c.isalnum())
-                    
-                    if clean_text not in seen_texts:
-                        unique_results.append({
-                            "text": text,
-                            "confidence": confidence,
-                            "bbox": result[0]
-                        })
-                        seen_texts.add(clean_text)
+                if result and len(result) > 0:
+                    for line in result:
+                        if len(line) >= 2:
+                            text = line[1][0] if isinstance(line[1], (list, tuple)) else str(line[1])
+                            confidence = line[1][1] if isinstance(line[1], (list, tuple)) and len(line[1]) > 1 else 0.5
+                            bbox = line[0] if len(line) > 0 else None
+                            
+                            # 清理文本用于去重
+                            clean_text = ''.join(c for c in text if c.isalnum())
+                            
+                            if clean_text not in seen_texts:
+                                unique_results.append({
+                                    "text": text,
+                                    "confidence": confidence,
+                                    "bbox": bbox
+                                })
+                                seen_texts.add(clean_text)
             
-            logger.info(f"✅ 猪耳标智能分层OCR识别到 {len(unique_results)} 个文本块")
+            logger.info(f"✅ 猪耳标多角度OCR识别到 {len(unique_results)} 个文本块")
             return unique_results
             
         except Exception as e:
@@ -324,7 +454,7 @@ class EartagOCR:
             return []
     
     def extract_pig_ear_tag_enhanced(self, texts_with_boxes):
-        """提取猪耳标中的耳标号码 - 基于科学方案"""
+        """提取猪耳标中的耳标号码 - 基于demo_eartag_ocr.py的优化方案"""
         # 初始化结果
         result = {
             "ear_tag_7digit": "未识别",  # 7位耳标号码
@@ -342,22 +472,40 @@ class EartagOCR:
                 text = word_info["text"]        # 识别的文字
                 confidence = word_info.get("confidence", 0.0)  # 置信度
                 
-                # 分类处理
-                if self.is_valid_eartag_number(text):
-                    eartag_numbers.append((text, confidence))
+                # 清理文本，只保留数字和字母
+                clean_text = ''.join(c for c in text if c.isalnum())
+                
+                # 分类处理 - 基于demo_eartag_ocr.py的逻辑
+                if self.is_valid_eartag_number(clean_text):
+                    eartag_numbers.append((clean_text, confidence))
+                    logger.info(f"🎯 识别到耳标数字: '{clean_text}' (置信度: {confidence:.4f})")
                 elif any(c.isdigit() for c in text):
-                    other_numbers.append((text, confidence))
+                    # 混合文本，先尝试提取纯数字
+                    extracted_numbers = self.extract_eartag_numbers(text)
+                    if extracted_numbers:
+                        # 如果提取到有效数字，检查是否为耳标数字
+                        for num in extracted_numbers:
+                            if self.is_valid_eartag_number(num):
+                                eartag_numbers.append((num, confidence))
+                                logger.info(f"🔧 从混合文本 '{text}' 提取耳标数字: {num}")
+                            else:
+                                other_numbers.append((num, confidence))
+                    else:
+                        other_numbers.append((text, confidence))
                 else:
                     text_content.append((text, confidence))
                     
-            except:
+            except Exception as e:
+                logger.warning(f"处理文本时出错: {e}")
                 continue
         
         logger.info(f"🔍 耳标数字候选: {[num[0] for num in eartag_numbers]}")
         logger.info(f"🔍 其他数字候选: {[num[0] for num in other_numbers]}")
+        logger.info(f"🔍 详细耳标数字候选: {eartag_numbers}")
         
         # 按置信度排序耳标数字
         eartag_numbers.sort(key=lambda x: x[1], reverse=True)
+        logger.info(f"🔍 排序后的耳标数字: {eartag_numbers}")
         
         # 去重并提取最可能的两个数字
         seen_numbers = set()
@@ -370,32 +518,78 @@ class EartagOCR:
                 seen_numbers.add(clean_text)
         
         logger.info(f"🔍 有效耳标数字: {valid_eartag_numbers}")
+        print(f"🔍 DEBUG: 有效耳标数字: {valid_eartag_numbers}")
         
-        # 选择最可能的两个数字
+        # 应用后处理优化（参考demo_eartag_ocr.py）
+        if valid_eartag_numbers:
+            logger.info("🔧 应用后处理优化...")
+            processed_numbers = self.post_process_eartag_numbers(valid_eartag_numbers)
+            # 更新为处理后的数字
+            valid_eartag_numbers = [(num, conf) for num, conf, orig in processed_numbers]
+            logger.info(f"🔧 后处理后的耳标数字: {valid_eartag_numbers}")
+            print(f"🔍 DEBUG: 后处理后的耳标数字: {valid_eartag_numbers}")
+        
+        # 调试：显示最终的数字分配逻辑
+        logger.info(f"🔍 开始数字分配，有效数字数量: {len(valid_eartag_numbers)}")
+        
+        # 选择最可能的两个数字 - 智能分配策略
         if len(valid_eartag_numbers) >= 2:
-            # 按置信度选择前两个
-            first_num = valid_eartag_numbers[0][0]
-            second_num = valid_eartag_numbers[1][0]
+            # 按长度分类
+            seven_digit_candidates = [(num, conf) for num, conf in valid_eartag_numbers if len(num) == 7]
+            eight_digit_candidates = [(num, conf) for num, conf in valid_eartag_numbers if len(num) == 8]
             
-            # 根据长度分配7位和8位数字
-            if len(first_num) == 7 and len(second_num) == 8:
-                result["ear_tag_7digit"] = first_num
-                result["ear_tag_8digit"] = second_num
-            elif len(first_num) == 8 and len(second_num) == 7:
-                result["ear_tag_7digit"] = second_num
-                result["ear_tag_8digit"] = first_num
-            elif len(first_num) == 7 and len(second_num) == 7:
-                # 两个都是7位，选择置信度高的作为7位，另一个补0作为8位
-                result["ear_tag_7digit"] = first_num
-                result["ear_tag_8digit"] = second_num + "0"
-            elif len(first_num) == 8 and len(second_num) == 8:
-                # 两个都是8位，选择置信度高的作为8位，另一个截取前7位
-                result["ear_tag_7digit"] = second_num[:7]
-                result["ear_tag_8digit"] = first_num
+            print(f"🔍 DEBUG: 7位候选: {seven_digit_candidates}")
+            print(f"🔍 DEBUG: 8位候选: {eight_digit_candidates}")
+            
+            # 优先选择置信度最高的7位和8位数字
+            if seven_digit_candidates and eight_digit_candidates:
+                # 有7位和8位数字，选择置信度最高的
+                best_7digit = max(seven_digit_candidates, key=lambda x: x[1])
+                best_8digit = max(eight_digit_candidates, key=lambda x: x[1])
+                result["ear_tag_7digit"] = best_7digit[0]
+                result["ear_tag_8digit"] = best_8digit[0]
+                print(f"✅ DEBUG: 最佳匹配 - 7位: {best_7digit[0]}, 8位: {best_8digit[0]}")
+            elif seven_digit_candidates:
+                # 只有7位数字，选择置信度最高的两个
+                seven_digit_candidates.sort(key=lambda x: x[1], reverse=True)
+                result["ear_tag_7digit"] = seven_digit_candidates[0][0]
+                if len(seven_digit_candidates) > 1:
+                    # 第二个7位数字补零变成8位
+                    result["ear_tag_8digit"] = seven_digit_candidates[1][0] + "0"
+                else:
+                    # 只有一个7位数字，补零变成8位
+                    result["ear_tag_8digit"] = seven_digit_candidates[0][0] + "0"
+                print(f"✅ DEBUG: 7位数字策略 - 7位: {result['ear_tag_7digit']}, 8位: {result['ear_tag_8digit']}")
+            elif eight_digit_candidates:
+                # 只有8位数字，选择置信度最高的两个
+                eight_digit_candidates.sort(key=lambda x: x[1], reverse=True)
+                result["ear_tag_8digit"] = eight_digit_candidates[0][0]
+                if len(eight_digit_candidates) > 1:
+                    # 第二个8位数字截取前7位
+                    result["ear_tag_7digit"] = eight_digit_candidates[1][0][:7]
+                else:
+                    # 只有一个8位数字，截取前7位
+                    result["ear_tag_7digit"] = eight_digit_candidates[0][0][:7]
+                print(f"✅ DEBUG: 8位数字策略 - 7位: {result['ear_tag_7digit']}, 8位: {result['ear_tag_8digit']}")
             else:
                 # 其他情况，按置信度分配
-                result["ear_tag_7digit"] = first_num if len(first_num) == 7 else first_num[:7]
-                result["ear_tag_8digit"] = second_num if len(second_num) == 8 else second_num + "0"
+                first_num = valid_eartag_numbers[0][0]
+                second_num = valid_eartag_numbers[1][0]
+                print(f"🔍 DEBUG: 按长度分配 - first: {first_num}, second: {second_num}")
+                
+                if len(first_num) == 7 and len(second_num) == 8:
+                    result["ear_tag_7digit"] = first_num
+                    result["ear_tag_8digit"] = second_num
+                elif len(first_num) == 8 and len(second_num) == 7:
+                    result["ear_tag_7digit"] = second_num
+                    result["ear_tag_8digit"] = first_num
+                else:
+                    # 其他情况，优先使用7位数字
+                    for num, conf in valid_eartag_numbers:
+                        if len(num) == 7 and result["ear_tag_7digit"] == "未识别":
+                            result["ear_tag_7digit"] = num
+                        elif len(num) == 8 and result["ear_tag_8digit"] == "未识别":
+                            result["ear_tag_8digit"] = num
                 
         elif len(valid_eartag_numbers) == 1:
             # 只有一个有效数字
@@ -432,6 +626,7 @@ class EartagOCR:
                         result["ear_tag_8digit"] = num + "0"
         
         logger.info(f"📌 科学猪耳标提取结果: {result}")
+        print(f"🔍 DEBUG: 最终结果 - 7位: {result['ear_tag_7digit']}, 8位: {result['ear_tag_8digit']}")
         return result
     
     def recognize_eartag(self, image_bytes):

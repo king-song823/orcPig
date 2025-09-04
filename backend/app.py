@@ -335,6 +335,7 @@ async def parse_docs(request: Request):
         id_kw = ["身份证", "公民身份号码", "姓名", "民族", "住址"]
         bank_kw = ["银行", "银行卡", "借记卡", "信用卡", "卡号", "农信", "信用社", "发卡行", "银行名称", "银联", "UNIONPAY", "VALID THRU", "CREDIT", "DEBIT"]
         ss_kw = ["保单号", "报案号", "系统"]
+        eartag_kw = ["耳标", "猪耳标", "拍摄人", "查勘地点", "拍摄地点", "经纬度"]
 
         # 身份证分数
         id_score = 0.0
@@ -355,10 +356,26 @@ async def parse_docs(request: Request):
             ss_score += 1.0
         ss_score += compute_keyword_proximity_score(texts_with_boxes, ss_kw)
 
-        logger.info(f"🧮 打分: 身份证={id_score:.1f}, 银行卡={bank_score:.1f}, 系统截图={ss_score:.1f}")
+        # 猪耳标分数（新增）- 大幅提高权重
+        eartag_score = 0.0
+        # 检测7位或8位数字（耳标特征）
+        eartag_numbers = re.findall(r'\b\d{7,8}\b', all_text)
+        if eartag_numbers:
+            eartag_score += len(eartag_numbers) * 3.0  # 每个耳标数字加3.0分（进一步提高权重）
+        eartag_score += compute_keyword_proximity_score(texts_with_boxes, eartag_kw)
+        
+        # 如果同时包含耳标数字和猪耳标关键词，额外加分
+        if eartag_numbers and any(kw in all_text for kw in ["拍摄人", "查勘地点", "拍摄地点"]):
+            eartag_score += 3.0  # 额外加分进一步提高
+        
+        # 特殊处理：如果包含"拍摄人"关键词，说明是猪耳标照片，大幅加分
+        if "拍摄人" in all_text:
+            eartag_score += 2.0  # 拍摄人是猪耳标的强特征
 
-        # 选择分最高的类别；分数相等时按 身份证 > 银行卡 > 系统截图
-        scores = [("id", id_score), ("bank", bank_score), ("ss", ss_score)]
+        logger.info(f"🧮 打分: 身份证={id_score:.1f}, 银行卡={bank_score:.1f}, 系统截图={ss_score:.1f}, 猪耳标={eartag_score:.1f}")
+
+        # 选择分最高的类别；分数相等时按 身份证 > 银行卡 > 系统截图 > 猪耳标
+        scores = [("id", id_score), ("bank", bank_score), ("ss", ss_score), ("eartag", eartag_score)]
         scores.sort(key=lambda x: x[1], reverse=True)
 
         chosen = scores[0][0] if scores and scores[0][1] > 0 else None
@@ -371,7 +388,11 @@ async def parse_docs(request: Request):
         elif chosen == "ss" and not results["system_screenshot"]:
             logger.info("📱 打分最高 -> 系统截图")
             results["system_screenshot"] = recognize_system_screenshot(texts_with_boxes)
-            
+        elif chosen == "eartag":
+            logger.info("🐷 打分最高 -> 猪耳标")
+            eartag_result = await asyncio.get_event_loop().run_in_executor(None, recognize_pig_ear_tag, content)
+            if eartag_result.get("ear_tag_7digit") != "未识别" or eartag_result.get("ear_tag_8digit") != "未识别":
+                results["pig_ear_tags"].append(eartag_result)
         else:
             logger.info("🐷 识别为猪耳标 (其他情况)")
             eartag_result = await asyncio.get_event_loop().run_in_executor(None, recognize_pig_ear_tag, content)
@@ -402,6 +423,8 @@ async def parse_docs(request: Request):
         "estimatedLoss": results["system_screenshot"].get("estimated_loss", "未识别") if results["system_screenshot"] else "未识别",
         "incidentCause": results["system_screenshot"].get("incident_cause", "未识别") if results["system_screenshot"] else "未识别",
         # 猪耳标信息
+        "earTag7Digit": results["pig_ear_tags"][0].get("ear_tag_7digit", "未识别") if results["pig_ear_tags"] else "未识别",
+        "earTag8Digit": results["pig_ear_tags"][0].get("ear_tag_8digit", "未识别") if results["pig_ear_tags"] else "未识别",
         "pigEarTags": results["pig_ear_tags"] if results["pig_ear_tags"] else [],
         # 调试信息
         "debug_ocr_texts": [item["text"] for item in results.get("debug_texts", [])],
