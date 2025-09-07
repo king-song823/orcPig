@@ -83,10 +83,18 @@ export default function App() {
     setLoading(true);
     try {
       console.log("开始发送请求到后端...");
-      const res = await fetch("http://localhost:8011/parse-docs", {
+      
+      // 创建一个Promise来处理超时
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('请求超时')), 60000); // 60秒超时
+      });
+      
+      const fetchPromise = fetch("http://localhost:8011/parse-docs", {
         method: "POST",
         body: formData,
       });
+      
+      const res = await Promise.race([fetchPromise, timeoutPromise]);
 
       console.log("响应状态:", res.status);
       console.log("响应头:", res.headers);
