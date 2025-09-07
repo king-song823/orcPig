@@ -75,23 +75,31 @@ export default function App() {
     if (files.length === 0) return alert("请上传图片");
 
     const formData = new FormData();
-    files.forEach((file) => formData.append("files", file));
+    files.forEach((file) => {
+      console.log("添加文件:", file.name, file.size, file.type);
+      formData.append("files", file);
+    });
 
     setLoading(true);
     try {
+      console.log("开始发送请求到后端...");
       const res = await fetch("http://localhost:8011/parse-docs", {
         method: "POST",
         body: formData,
       });
 
-      if (!res.ok) throw new Error("解析失败");
-      const data = await res.json();
+      console.log("响应状态:", res.status);
+      console.log("响应头:", res.headers);
 
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error("响应错误:", errorText);
+        throw new Error(`HTTP ${res.status}: ${res.statusText} - ${errorText}`);
+      }
+      
+      const data = await res.json();
       console.log("OCR 结果:", data);
-      console.log(
-        "识别的文件:",
-        files.map((f) => f.name)
-      );
+      console.log("识别的文件:", files.map((f) => f.name));
 
       setForm((prev) => ({
         ...prev,
@@ -119,9 +127,13 @@ export default function App() {
         remarks: data.remarks || prev.remarks,
         phone: data.phone || prev.phone,
       }));
+      
+      // 显示成功消息
+      alert("识别成功！请查看表单中的识别结果。");
+      
     } catch (err) {
-      console.error(err);
-      alert("识别失败");
+      console.error("详细错误信息:", err);
+      alert(`识别失败: ${err.message}\n\n请检查:\n1. 后端服务是否运行在 http://localhost:8011\n2. 图片格式是否正确\n3. 浏览器控制台是否有更多错误信息`);
     } finally {
       setLoading(false);
     }

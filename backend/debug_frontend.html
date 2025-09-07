@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>前端调试页面</title>
+    <meta charset="utf-8">
+</head>
+<body>
+    <h1>前端调试页面</h1>
+    
+    <div>
+        <h2>1. 测试后端连接</h2>
+        <button onclick="testConnection()">测试连接</button>
+        <div id="connection-result"></div>
+    </div>
+    
+    <div>
+        <h2>2. 测试文件上传</h2>
+        <input type="file" id="fileInput" multiple accept="image/*">
+        <button onclick="testUpload()">测试上传</button>
+        <div id="upload-result"></div>
+    </div>
+    
+    <div>
+        <h2>3. 测试OCR识别</h2>
+        <button onclick="testOCR()">测试OCR</button>
+        <div id="ocr-result"></div>
+    </div>
+
+    <script>
+        async function testConnection() {
+            const resultDiv = document.getElementById('connection-result');
+            try {
+                const response = await fetch('http://localhost:8011/parse-docs', {
+                    method: 'OPTIONS',
+                    headers: {
+                        'Origin': 'http://localhost:5173'
+                    }
+                });
+                
+                if (response.ok) {
+                    resultDiv.innerHTML = '<p style="color: green;">✅ 连接成功</p>';
+                } else {
+                    resultDiv.innerHTML = `<p style="color: red;">❌ 连接失败: ${response.status}</p>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p style="color: red;">❌ 连接错误: ${error.message}</p>`;
+            }
+        }
+        
+        async function testUpload() {
+            const fileInput = document.getElementById('fileInput');
+            const resultDiv = document.getElementById('upload-result');
+            
+            if (fileInput.files.length === 0) {
+                resultDiv.innerHTML = '<p style="color: orange;">⚠️ 请先选择文件</p>';
+                return;
+            }
+            
+            const formData = new FormData();
+            for (let file of fileInput.files) {
+                formData.append('files', file);
+                console.log('添加文件:', file.name, file.size, file.type);
+            }
+            
+            try {
+                resultDiv.innerHTML = '<p>🔄 正在上传...</p>';
+                
+                const response = await fetch('http://localhost:8011/parse-docs', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                console.log('响应状态:', response.status);
+                console.log('响应头:', response.headers);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log('响应数据:', data);
+                
+                resultDiv.innerHTML = `
+                    <p style="color: green;">✅ 上传成功</p>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+                
+            } catch (error) {
+                console.error('上传错误:', error);
+                resultDiv.innerHTML = `<p style="color: red;">❌ 上传失败: ${error.message}</p>`;
+            }
+        }
+        
+        async function testOCR() {
+            const resultDiv = document.getElementById('ocr-result');
+            
+            // 创建一个测试用的FormData
+            const formData = new FormData();
+            
+            try {
+                // 尝试从后端获取一个测试图片
+                const testImageResponse = await fetch('http://localhost:8011/test-image');
+                if (testImageResponse.ok) {
+                    const blob = await testImageResponse.blob();
+                    formData.append('files', blob, 'test.jpg');
+                } else {
+                    resultDiv.innerHTML = '<p style="color: orange;">⚠️ 无法获取测试图片</p>';
+                    return;
+                }
+                
+                resultDiv.innerHTML = '<p>🔄 正在识别...</p>';
+                
+                const response = await fetch('http://localhost:8011/parse-docs', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log('OCR结果:', data);
+                
+                resultDiv.innerHTML = `
+                    <p style="color: green;">✅ 识别成功</p>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+                
+            } catch (error) {
+                console.error('OCR错误:', error);
+                resultDiv.innerHTML = `<p style="color: red;">❌ 识别失败: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>
