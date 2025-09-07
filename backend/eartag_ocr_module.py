@@ -543,14 +543,29 @@ class EartagOCR:
             
             # 优先选择置信度最高的7位和8位数字
             if seven_digit_candidates and eight_digit_candidates:
-                # 有7位和8位数字，选择置信度最高的
-                best_7digit = max(seven_digit_candidates, key=lambda x: x[1])
+                # 有7位和8位数字，优先选择以"1"开头的7位数字
                 best_8digit = max(eight_digit_candidates, key=lambda x: x[1])
+                
+                # 优先选择以"1"开头的7位数字
+                one_start_candidates = [c for c in seven_digit_candidates if c[0].startswith('1')]
+                if one_start_candidates:
+                    best_7digit = max(one_start_candidates, key=lambda x: x[1])
+                    print(f"✅ DEBUG: 优先选择1开头的7位数字 - 7位: {best_7digit[0]}, 8位: {best_8digit[0]}")
+                else:
+                    # 如果没有以"1"开头的，选择置信度最高的
+                    best_7digit = max(seven_digit_candidates, key=lambda x: x[1])
+                    print(f"⚠️ DEBUG: 无1开头的7位数字，选择置信度最高的 - 7位: {best_7digit[0]}, 8位: {best_8digit[0]}")
+                
                 result["ear_tag_7digit"] = best_7digit[0]
                 result["ear_tag_8digit"] = best_8digit[0]
-                print(f"✅ DEBUG: 最佳匹配 - 7位: {best_7digit[0]}, 8位: {best_8digit[0]}")
             elif seven_digit_candidates:
-                # 只有7位数字，选择置信度最高的两个
+                # 只有7位数字，优先选择以"1"开头的
+                one_start_candidates = [c for c in seven_digit_candidates if c[0].startswith('1')]
+                if one_start_candidates:
+                    # 优先选择以"1"开头的7位数字
+                    seven_digit_candidates = one_start_candidates
+                    print(f"✅ DEBUG: 优先选择1开头的7位数字")
+                
                 seven_digit_candidates.sort(key=lambda x: x[1], reverse=True)
                 result["ear_tag_7digit"] = seven_digit_candidates[0][0]
                 if len(seven_digit_candidates) > 1:
