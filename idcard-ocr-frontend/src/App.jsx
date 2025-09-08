@@ -83,17 +83,17 @@ export default function App() {
     setLoading(true);
     try {
       console.log("开始发送请求到后端...");
-      
+
       // 创建一个Promise来处理超时
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('请求超时')), 60000); // 60秒超时
+        setTimeout(() => reject(new Error("请求超时")), 60000); // 60秒超时
       });
-      
+
       const fetchPromise = fetch("http://localhost:8011/parse-docs", {
         method: "POST",
         body: formData,
       });
-      
+
       const res = await Promise.race([fetchPromise, timeoutPromise]);
 
       console.log("响应状态:", res.status);
@@ -104,10 +104,13 @@ export default function App() {
         console.error("响应错误:", errorText);
         throw new Error(`HTTP ${res.status}: ${res.statusText} - ${errorText}`);
       }
-      
+
       const data = await res.json();
       console.log("OCR 结果:", data);
-      console.log("识别的文件:", files.map((f) => f.name));
+      console.log(
+        "识别的文件:",
+        files.map((f) => f.name)
+      );
 
       setForm((prev) => ({
         ...prev,
@@ -135,13 +138,13 @@ export default function App() {
         remarks: data.remarks || prev.remarks,
         phone: data.phone || prev.phone,
       }));
-      
+
       // 显示成功消息
-      alert("识别成功！请查看表单中的识别结果。");
-      
     } catch (err) {
       console.error("详细错误信息:", err);
-      alert(`识别失败: ${err.message}\n\n请检查:\n1. 后端服务是否运行在 http://localhost:8011\n2. 图片格式是否正确\n3. 浏览器控制台是否有更多错误信息`);
+      alert(
+        `识别失败: ${err.message}\n\n请检查:\n1. 后端服务是否运行在 http://localhost:8011\n2. 图片格式是否正确\n3. 浏览器控制台是否有更多错误信息`
+      );
     } finally {
       setLoading(false);
     }
